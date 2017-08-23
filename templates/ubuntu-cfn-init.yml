@@ -1,0 +1,96 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Parameters:
+  InstanceType:
+    Description: Type of EC2 instance to launch
+    Type: String
+    AllowedValues:
+      - t2.micro
+      - t2.small
+      - t2.medium
+      - t2.large
+  AvailabilityZones:
+    Description: Availability zones to use for instance
+    Type: AWS::EC2::AvailabilityZone::Name
+    Default: "eu-central-1a"
+  SecurityGroups:
+    Description: Security group IDs to attach to instance
+    Type: List<AWS::EC2::SecurityGroup::GroupName>
+  ImageId:
+    Description: AMI's image ID for the instance
+    Type: AWS::EC2::Image::Id
+    Default: ami-1e339e71
+  VolumeSize:
+    Description: EBS volume size for instance
+    Type: Number
+    Default: 30
+  SSHKey:
+    Description: SSH KeyName
+    Type: AWS::EC2::KeyPair::KeyName
+
+Resources:
+  MyInstance:
+    Type: AWS::EC2::Instance
+    Metadata:
+      AWS::CloudFormation::Init:
+        configSets:
+          default:
+          - config-cfn-hup
+        config-cfn-hup:
+          files:
+            # cfn-hup configuration
+            '/etc/cfn/cfn-hup.conf':
+              content: !Sub |
+                [main]
+                stack=${AWS::StackId}
+                region=${AWS::Region}
+            '/etc/cfn/hooks.d/cfn-auto-reloader.conf':
+              content: !Sub |
+                [cfn-auto-reloader-hook]
+                triggers=post.update
+                path=Resources.MyInstance.Metadata.AWS::CloudFormation::Init
+                action=/usr/local/bin/cfn-init -v --stack ${AWS::StackId} --region ${AWS::Region} --resource MyInstance
+            # Service configuration
+            '/etc/systemd/system/cfn-hup.service':
+              content: |
+                [Unit]
+                Description=CloudFormation helper daemon
+
+                [Service]
+                ExecStart=/usr/local/bin/cfn-hup
+                Restart=always
+                RestartSec=10s
+                Type=notify
+                NotifyAccess=all
+                TimeoutStartSec=120
+                TimeoutStopSec=15
+
+                [Install]
+                WantedBy=multi-user.target
+
+          commands:
+            enable-cfn-hup:
+              command: 'systemctl enable cfn-hup.service'
+            start-cfn-hup:
+              command: 'systemctl start cfn-hup.service'
+    Properties:
+      AvailabilityZone: !Ref AvailabilityZones
+      BlockDeviceMappings:
+        - DeviceName: /dev/sda1
+          Ebs:
+            DeleteOnTermination: 'true'
+            VolumeSize: !Ref VolumeSize
+            VolumeType: gp2
+      ImageId: !Ref ImageId
+      InstanceType: !Ref InstanceType
+      KeyName: !Ref SSHKey
+      SecurityGroups: !Ref SecurityGroups
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash -xe
+          apt-get update
+          apt-get --yes upgrade
+          apt-get --yes install python-setuptools
+          easy_install https://s3.amazonaws.com/cloudformation-examples/aws-cfn-bootstrap-1.4-20.tar.gz
+
+          cfn-init -v --stack ${AWS::StackId} --region ${AWS::Region} --resource MyInstance
+          cfn-signal -e $? --stack ${AWS::StackId} --region ${AWS::Region} --resource MyInstance
