@@ -32,10 +32,7 @@ Resources:
     Type: AWS::EC2::Instance
     Metadata:
       AWS::CloudFormation::Init:
-        configSets:
-          default:
-          - config-cfn-hup
-        config-cfn-hup:
+        config:
           files:
             # cfn-hup configuration
             '/etc/cfn/cfn-hup.conf':
@@ -49,29 +46,6 @@ Resources:
                 triggers=post.update
                 path=Resources.MyInstance.Metadata.AWS::CloudFormation::Init
                 action=/usr/local/bin/cfn-init -v --stack ${AWS::StackId} --region ${AWS::Region} --resource MyInstance
-            # Service configuration
-            '/etc/systemd/system/cfn-hup.service':
-              content: |
-                [Unit]
-                Description=CloudFormation helper daemon
-
-                [Service]
-                ExecStart=/usr/local/bin/cfn-hup
-                Restart=always
-                RestartSec=10s
-                Type=notify
-                NotifyAccess=all
-                TimeoutStartSec=120
-                TimeoutStopSec=15
-
-                [Install]
-                WantedBy=multi-user.target
-
-          commands:
-            enable-cfn-hup:
-              command: 'systemctl enable cfn-hup.service'
-            start-cfn-hup:
-              command: 'systemctl start cfn-hup.service'
     Properties:
       AvailabilityZone: !Ref AvailabilityZones
       BlockDeviceMappings:
@@ -89,8 +63,14 @@ Resources:
           #!/bin/bash -xe
           apt-get update
           apt-get --yes upgrade
-          apt-get --yes install python-setuptools
-          easy_install https://s3.amazonaws.com/cloudformation-examples/aws-cfn-bootstrap-1.4-20.tar.gz
+          apt-get --yes install python-setuptools python-pip
+          easy_install https://s3.amazonaws.com/cloudformation-examples/aws-cfn-bootstrap-latest.tar.gz
+          pip install awscli
 
           cfn-init -v --stack ${AWS::StackId} --region ${AWS::Region} --resource MyInstance
-          cfn-signal -e $? --stack ${AWS::StackId} --region ${AWS::Region} --resource MyInstance
+          
+          # Start up the cfn-hup daemon to listen for changes to the Web Server metadata
+          cfn-hup
+          
+          # All is well so signal success
+          cfn-signal -e $? --stack ${AWS::StackName} --region ${AWS::Region} --resource MyInstance
