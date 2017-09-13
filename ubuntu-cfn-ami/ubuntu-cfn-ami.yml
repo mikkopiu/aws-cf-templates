@@ -1,28 +1,13 @@
 AWSTemplateFormatVersion: '2010-09-09'
 Parameters:
-  InstanceType:
-    Description: Type of EC2 instance to launch
-    Type: String
-    AllowedValues:
-      - t2.micro
-      - t2.small
-      - t2.medium
-      - t2.large
-  AvailabilityZones:
+  AvailabilityZone:
     Description: Availability zones to use for instance
     Type: AWS::EC2::AvailabilityZone::Name
-    Default: "eu-central-1a"
-  SecurityGroups:
-    Description: Security group IDs to attach to instance
-    Type: List<AWS::EC2::SecurityGroup::GroupName>
+    Default: eu-central-1a
   ImageId:
-    Description: AMI's image ID for the instance
+    Description: Base AMI's image ID
     Type: AWS::EC2::Image::Id
     Default: ami-1e339e71
-  VolumeSize:
-    Description: EBS volume size for instance
-    Type: Number
-    Default: 30
   SSHKey:
     Description: SSH KeyName
     Type: AWS::EC2::KeyPair::KeyName
@@ -30,47 +15,24 @@ Parameters:
 Resources:
   MyInstance:
     Type: AWS::EC2::Instance
-    Metadata:
-      AWS::CloudFormation::Init:
-        config:
-          files:
-            # cfn-hup configuration
-            '/etc/cfn/cfn-hup.conf':
-              content: !Sub |
-                [main]
-                stack=${AWS::StackId}
-                region=${AWS::Region}
-            '/etc/cfn/hooks.d/cfn-auto-reloader.conf':
-              content: !Sub |
-                [cfn-auto-reloader-hook]
-                triggers=post.update
-                path=Resources.MyInstance.Metadata.AWS::CloudFormation::Init
-                action=/usr/local/bin/cfn-init -v --stack ${AWS::StackId} --region ${AWS::Region} --resource MyInstance
     Properties:
-      AvailabilityZone: !Ref AvailabilityZones
+      AvailabilityZone: !Ref AvailabilityZone
       BlockDeviceMappings:
         - DeviceName: /dev/sda1
           Ebs:
             DeleteOnTermination: 'true'
-            VolumeSize: !Ref VolumeSize
+            VolumeSize: 10
             VolumeType: gp2
       ImageId: !Ref ImageId
-      InstanceType: !Ref InstanceType
+      InstanceType: t2.micro
       KeyName: !Ref SSHKey
-      SecurityGroups: !Ref SecurityGroups
       UserData:
         Fn::Base64: !Sub |
           #!/bin/bash -xe
           apt-get update
-          apt-get --yes upgrade
-          apt-get --yes install python-setuptools python-pip
+          apt-get --yes install curl python-setuptools python-pip
           easy_install https://s3.amazonaws.com/cloudformation-examples/aws-cfn-bootstrap-latest.tar.gz
           pip install awscli
 
-          cfn-init -v --stack ${AWS::StackId} --region ${AWS::Region} --resource MyInstance
-          
-          # Start up the cfn-hup daemon to listen for changes to the Web Server metadata
-          cfn-hup
-          
-          # All is well so signal success
-          cfn-signal -e $? --stack ${AWS::StackName} --region ${AWS::Region} --resource MyInstance
+          # Initialize system with cfn-init
+          #cfn-init -v --stack ${AWS::StackName} --region ${AWS::Region} --resource MyInstance
